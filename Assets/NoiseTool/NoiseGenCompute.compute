@@ -1,0 +1,218 @@
+#pragma kernel CSMain
+#pragma kernel CSNormalize
+
+static const int numThreads = 8;
+static const int minMaxAccuracy = 10000000;
+
+uint resolution;
+RWTexture3D<float4> Result;
+RWStructuredBuffer<int> minMax;
+StructuredBuffer<float3> pointsA;
+StructuredBuffer<float3> pointsB;
+StructuredBuffer<float3> pointsC;
+StructuredBuffer<float3> pointsD;
+StructuredBuffer<float3> pointsE;
+
+float perlinWorleyMixture;
+
+int worleyFrequencyA;
+int worleyFrequencyB;
+int worleyFrequencyC;
+int perlinFrequencyA;
+int perlinFrequencyB;
+
+float persistence;
+bool invertNoise;
+int tile;
+
+static const int3 offsets[] =
+{
+    // centre
+    int3(0, 0, 0),
+    // front face
+    int3(0, 0, 1),
+    int3(-1, 1, 1),
+    int3(-1, 0, 1),
+    int3(-1, -1, 1),
+    int3(0, 1, 1),
+    int3(0, -1, 1),
+    int3(1, 1, 1),
+    int3(1, 0, 1),
+    int3(1, -1, 1),
+    // back face
+    int3(0, 0, -1),
+    int3(-1, 1, -1),
+    int3(-1, 0, -1),
+    int3(-1, -1, -1),
+    int3(0, 1, -1),
+    int3(0, -1, -1),
+    int3(1, 1, -1),
+    int3(1, 0, -1),
+    int3(1, -1, -1),
+    // ring around centre
+    int3(-1, 1, 0),
+    int3(-1, 0, 0),
+    int3(-1, -1, 0),
+    int3(0, 1, 0),
+    int3(0, -1, 0),
+    int3(1, 1, 0),
+    int3(1, 0, 0),
+    int3(1, -1, 0)
+};
+
+float MaxFloat3(float3 vec)
+{
+    return max(vec.x, max(vec.y, vec.z));
+}
+
+float MinFloat3(float3 vec)
+{
+    return min(vec.x, min(vec.y, vec.z));
+}
+
+float smooth(float w)
+{
+    return w * w * w * (w * (w * 6 - 15) + 10);
+}
+
+float smoothStep(float a, float b, float w)
+{
+    return a + smooth(w) * (b - a);
+}
+
+float mixPerlinWorley(float a, float b, float c, float t)
+{
+    float ab = lerp(a, b, 0.5);
+    if (t < 0.5)
+    {
+        return lerp(a, b, t);
+    }
+	
+    return lerp(ab, c, t - 0.5);
+}
+
+float GetWorleyValue(StructuredBuffer<float3> points, int numCells, float3 samplePos)
+{
+    int3 currSampleCellID = floor(samplePos * numCells);
+    float minDst = 1;
+
+    for (int cellOffsetIndex = 0; cellOffsetIndex < 27; cellOffsetIndex++)
+    {
+        int3 adjCellID = currSampleCellID + offsets[cellOffsetIndex];
+        if (MinFloat3(adjCellID) == -1 || MaxFloat3(adjCellID) == numCells)
+        {
+            int3 wrappedCellID = (adjCellID + numCells) % (uint3)numCells;
+            int wrappedCellIndex = wrappedCellID.x + numCells * (wrappedCellID.y + (wrappedCellID.z * numCells));
+            for (int wrappedCellOffset = 0; wrappedCellOffset < 27; wrappedCellOffset++)
+            {
+                int wrappedCellIndex = wrappedCellID.x + numCells * (wrappedCellID.y + (wrappedCellID.z * numCells));
+                float3 dstVector = samplePos - points[wrappedCellIndex] + offsets[wrappedCellOffset];
+                minDst = min(minDst, dot(dstVector, dstVector));
+            }
+        }
+        else
+        {
+            int adjCellIndex = adjCellID.x + numCells * (adjCellID.y + adjCellID.z * numCells);
+            float3 dstVector = samplePos - points[adjCellIndex];
+            minDst = min(minDst, dot(dstVector, dstVector));
+        }
+    }
+    return sqrt(minDst);
+}
+
+float GetPerlinValue(StructuredBuffer<float3> points, int numCells, float3 samplePos)
+{
+    int3 sampleCell = floor(samplePos * numCells);
+    float3 sampleCellPos = ((float3) samplePos - ((float3) sampleCell / (float3) numCells)) * (float3) numCells;
+    int3 offsets[8] =
+    {
+        int3(0, 0, 0),
+		int3(0, 0, 1),
+		int3(0, 1, 0),
+		int3(0, 1, 1),
+		int3(1, 0, 0),
+		int3(1, 0, 1),
+		int3(1, 1, 0),
+		int3(1, 1, 1)
+    };
+    float perlinResult[8];
+
+    for (int i = 0; i < 8; i++)
+    {
+        int3 corner = sampleCell + offsets[i];
+        corner = corner % (uint3) numCells;
+        int index = corner.x + numCells * (corner.y + corner.z * numCells);
+		// Convert random point to gradient value
+        float3 gradient = (points[index] - ((float3) corner / (float3) numCells)) * (float3) numCells;
+        gradient -= float3(0.5, 0.5, 0.5);
+        float3 distance = sampleCellPos - (float3) offsets[i];
+        perlinResult[i] = dot(gradient, distance);
+        perlinResult[i] = clamp(0, 1, (perlinResult[i] + 3.0) / 6.0);
+        perlinResult[i] = smooth(perlinResult[i]);
+    }
+
+    float z1 = smoothStep(perlinResult[0], perlinResult[1], sampleCellPos.z);
+    float z2 = smoothStep(perlinResult[2], perlinResult[3], sampleCellPos.z);
+    float z3 = smoothStep(perlinResult[4], perlinResult[5], sampleCellPos.z);
+    float z4 = smoothStep(perlinResult[6], perlinResult[7], sampleCellPos.z);
+
+    float y1 = smoothStep(z1, z2, sampleCellPos.y);
+    float y2 = smoothStep(z3, z4, sampleCellPos.y);
+    float f = smoothStep(y1, y2, sampleCellPos.x);
+    return f;
+}
+
+float Remap(float original_value, float original_min, float original_max, float new_min, float new_max)
+{
+    return new_min + ((original_value - original_min) / (original_max - original_min)) * (new_max - new_min);
+}
+
+
+[numthreads(numThreads, numThreads, numThreads)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    float3 samplePos = id / (float) resolution;
+
+    float worleyNoiseFrequencyA = GetWorleyValue(pointsA, worleyFrequencyA, samplePos);
+    float worleyNoiseFrequencyB = GetWorleyValue(pointsB, worleyFrequencyB, samplePos);
+    float worleyNoiseFrequencyC = GetWorleyValue(pointsC, worleyFrequencyC, samplePos);
+    
+    float perlinNoiseFrequencyA = GetPerlinValue(pointsD, perlinFrequencyA, samplePos);
+    float perlinNoiseFrequencyB = GetPerlinValue(pointsE, perlinFrequencyB, samplePos);
+    
+    float noiseValueSum = worleyNoiseFrequencyA + worleyNoiseFrequencyB * persistence + worleyNoiseFrequencyC * persistence * persistence;
+    noiseValueSum = noiseValueSum / (1 + persistence + persistence * persistence);
+
+    // Invert
+    if (invertNoise)
+    {
+        worleyNoiseFrequencyA = 1 - worleyNoiseFrequencyA;
+        worleyNoiseFrequencyB = 1 - worleyNoiseFrequencyB;
+        worleyNoiseFrequencyC = 1 - worleyNoiseFrequencyC;
+        noiseValueSum = 1 - noiseValueSum;
+    }
+
+    int val = (int) (noiseValueSum * minMaxAccuracy);
+    InterlockedMin(minMax[0], val);
+    InterlockedMax(minMax[1], val);
+    
+    float perlinWorleyNoise = mixPerlinWorley(worleyNoiseFrequencyA, perlinNoiseFrequencyA, perlinNoiseFrequencyB, perlinWorleyMixture);
+
+    // Store Perlin-worley to R Channel
+    //Result[id] = Result[id] * (1 - float4(1, 0, 0, 0)) + perlinWorleyNoise * float4(1, 0, 0, 0);
+    // Store three layer worley to G Channel
+    Result[id] = Result[id] * (1 - float4(0, 1, 0, 0)) + noiseValueSum * float4(0, 1, 0, 0);
+    Result[id] = Result[id] * (1 - float4(1, 0, 0, 0)) + perlinWorleyNoise * float4(1, 0, 0, 0);
+    //Result[id] = noiseValueSum;
+}
+
+
+[numthreads(numThreads, numThreads, numThreads)]
+void CSNormalize(uint3 id : SV_DispatchThreadID)
+{
+    float minVal = (float) minMax[0] / minMaxAccuracy;
+    float maxVal = (float) minMax[1] / minMaxAccuracy;
+    float4 normalizedVal = (Result[id] - minVal) / (maxVal - minVal);
+
+    Result[id] = Result[id] * (1 - float4(1, 1, 0, 0)) + normalizedVal * float4(1, 1, 0, 0);
+}
