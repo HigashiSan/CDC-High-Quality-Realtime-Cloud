@@ -19,5 +19,5 @@ use compute shader
 
 HG phase function
 
-Multiple scattering
+Multiple scattering approximate.
 
