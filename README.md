@@ -8,6 +8,9 @@ References:
 [A Ray-Box Intersection Algorithm and Efficient Dynamic Voxel Rendering.pdf](https://github.com/HigashiSan/CDC-High-Quality-Realtime-Cloud/files/11010201/A.Ray-Box.Intersection.Algorithm.and.Efficient.Dynamic.Voxel.Rendering.pdf)
 
 
+[Wrenninge-OzTheGreatAndVolumetric.pdf](https://github.com/HigashiSan/CDC-High-Quality-Realtime-Cloud/files/11010204/Wrenninge-OzTheGreatAndVolumetric.pdf)
+
+
 ![image](https://user-images.githubusercontent.com/56297955/226152860-e45af740-3d6f-430b-9802-eafecc0dc606.png)
 
 ![Screenshot 2023-03-06 105332](https://user-images.githubusercontent.com/56297955/223182922-5df4aa63-b863-44e9-9a5e-b85b3b13c5c3.png)
