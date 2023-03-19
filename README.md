@@ -24,10 +24,9 @@ https://user-images.githubusercontent.com/56297955/223188066-da025b37-ff2d-41ca-
 
 ## Key technical points:
 
-GPU 3D Worley-Perlin noise    FBM Worley noise
-use compute shader
+GPU 3D Worley-Perlin noise and FBM Worley detail noise generator use compute shader.
 
-HG phase function
+HG phase function.
 
 Multiple scattering approximate.
 
