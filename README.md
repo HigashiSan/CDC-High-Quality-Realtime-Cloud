@@ -1,4 +1,4 @@
-How to render realistic volume cloud is a topic I always want to try. So far, I have implemented most of the basic cloud rendering technologies, and the effect looks good. About layered cloud and other more advanced technologies, I will implement them slowly after I finish my graduation project.
+How to render realistic volume cloud is a topic I always want to try. So far, I have implemented most of the basic cloud rendering technologies, and the effect looks good. After I finished adaptive raymarching step size and split-frame reconstruction, performance is 2~3ms per frame.
 
 
 References:
